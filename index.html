@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ping Monitor</title>
+<style>
+  :root{--bg:#0b0e14;--panel:#121723;--panel2:#171d2b;--line:#232b3d;--text:#e6e9f0;--mute:#8a93a8;--ok:#2dd4a7;--warn:#f5b73b;--down:#ff5468;--accent:#6ea8ff}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  h1{font-size:18px;margin:0;font-weight:650}
+  .live{display:inline-flex;align-items:center;gap:6px;color:var(--mute);font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(45,212,167,.6)}70%,100%{box-shadow:0 0 0 8px rgba(45,212,167,0)}}
+  .demo{font-size:11px;padding:2px 8px;border:1px solid #5b4a1a;border-radius:99px;color:var(--warn);display:none}
+  .spacer{flex:1}
+  .stats{display:flex;gap:22px}
+  .stat b{display:block;font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}
+  .stat span{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.6px}
+  main{display:grid;grid-template-columns:330px 1fr;gap:16px;padding:16px 20px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  h2{font-size:12px;margin:0;color:var(--mute);text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+  .ph{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .row{display:grid;grid-template-columns:10px 1fr 80px;gap:10px;align-items:center;padding:12px 14px;cursor:pointer;border-bottom:1px solid #1a2132}
+  .row:hover{background:var(--panel2)}.row.sel{background:#1b2540;box-shadow:inset 3px 0 0 var(--accent)}
+  .st{width:10px;height:10px;border-radius:50%;flex:none}
+  .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nm small{display:block;color:var(--mute);font-weight:400;font-size:12px}
+  svg.spark{width:80px;height:28px}
+  .right{display:grid;gap:16px;min-width:0}
+  .mapwrap{position:relative}
+  canvas{display:block;width:100%}
+  #map{height:400px}#graph{height:270px}
+  .tip{position:absolute;pointer-events:none;background:#0d1220f2;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;display:none;min-width:150px;z-index:5}
+  .tip b{display:block;margin-bottom:3px}.tip div{display:flex;justify-content:space-between;gap:14px;color:var(--mute)}.tip div span:last-child{color:var(--text);font-variant-numeric:tabular-nums}
+  .legend{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);color:var(--mute);font-size:12px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+  .legend i.ln{width:14px;height:3px;border-radius:2px}
+  .badge{font-size:11px;padding:2px 9px;border-radius:99px;font-weight:650;text-transform:uppercase;letter-spacing:.5px}
+  .b-ok{background:#12352c;color:var(--ok)}.b-warn{background:#3b2f10;color:var(--warn)}.b-down{background:#401820;color:var(--down)}.b-unk{background:#222a3b;color:var(--mute)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--mute);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px 14px}
+  td{padding:8px 14px;border-top:1px solid #1a2132;font-variant-numeric:tabular-nums}
+  #log{max-height:180px;overflow:auto}
+  .ev{display:flex;gap:10px;padding:8px 14px;border-bottom:1px solid #1a2132;font-size:13px;align-items:center}
+  .ev time{color:var(--mute);min-width:62px;font-variant-numeric:tabular-nums}
+  .empty{padding:16px 14px;color:var(--mute)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;padding:5px 10px;font:inherit;font-size:12px;background:transparent;color:var(--mute);cursor:pointer}.seg button.on{background:#1b2540;color:var(--text)}
+  .note{padding:8px 14px;color:var(--mute);font-size:12px;border-top:1px solid var(--line)}
+  @media(max-width:960px){main{grid-template-columns:1fr}#map{height:300px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ping Monitor</h1>
+  <span class="live"><span class="dot"></span><span id="liveTxt">Connecting…</span></span>
+  <div class="seg" id="mode" title="Live reads from your deployed Worker (/api/state). Demo uses simulated data."><button data-m="live">Live</button><button data-m="demo">Demo</button></div>
+  <span class="demo" id="demoTag">Simulated data</span>
+  <span class="spacer"></span>
+  <div class="stats">
+    <div class="stat"><b id="sHealthy">–</b><span>Sites reachable</span></div>
+    <div class="stat"><b id="sProbes">–</b><span>Locations reporting</span></div>
+    <div class="stat"><b id="sMed">–</b><span>Avg ping</span></div>
+  </div>
+</header>
+
+<main>
+  <aside class="panel">
+    <div class="ph"><h2>Your sites</h2></div>
+    <div id="rows"></div>
+  </aside>
+
+  <section class="right">
+    <div class="panel">
+      <div class="ph"><h2 id="mapTitle">Ping from Cloudflare locations</h2></div>
+      <div class="mapwrap"><canvas id="map"></canvas><div class="tip" id="tip"></div></div>
+      <div class="legend">
+        <span><i style="background:var(--ok)"></i>Up</span><span><i style="background:var(--warn)"></i>Slow (&gt;1000 ms) or server error</span><span><i style="background:var(--down)"></i>No reply (lost)</span>
+        <span><i style="background:transparent;border:2px solid #8a93a8;border-radius:2px;transform:rotate(45deg)"></i>Wide-area city ping (every 15 min)</span><span style="margin-left:auto">Circles: Cloudflare locations, live · bubble size = round-trip time</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2 id="gTitle">Round-trip time</h2><span class="badge b-unk" id="gBadge">–</span><span class="spacer"></span>
+        <div class="seg" id="range"><button data-r="300000">5m</button><button data-r="900000" class="on">15m</button><button data-r="3600000">60m</button></div></div>
+      <div class="mapwrap"><canvas id="graph"></canvas><div class="tip" id="gtip"></div></div>
+      <div class="legend" id="gLegend"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2 id="tTitle">Locations</h2></div>
+      <table><thead><tr><th>Location</th><th>Status</th><th>Last</th><th>Min</th><th>Avg</th><th>Max</th><th>Jitter</th><th>Loss</th></tr></thead><tbody id="tbody"></tbody></table>
+      <div class="note">A ping is an HTTP HEAD request timed to the first response (Workers cannot send ICMP). Min / avg / max / jitter / loss cover the selected time range. Locations are the Cloudflare data centers each probe actually ran in; placement is best effort.</div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2 id="wTitle">Wide-area ping by city</h2><span class="spacer"></span><span id="wAge" style="color:var(--mute);font-size:12px"></span></div>
+      <table><thead><tr><th>City</th><th>Network</th><th>Status</th><th>Avg</th><th>Min</th><th>Max</th><th>Loss</th></tr></thead><tbody id="wbody"></tbody></table>
+      <div class="note" id="wNote"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2>Events since this page was opened</h2></div>
+      <div id="log"><div class="empty">No status changes yet.</div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+'use strict';
+const SLOW = 1000;                       // ms: a reply slower than this counts as slow
+const COLORS = ['#6ea8ff','#c792ea','#2dd4a7','#f5b73b','#ff8fab','#8bd3dd','#b6e36b','#ffa56b'];
+// lat, lon, city for Cloudflare data centers (US); unknown codes fall back to the region centre
+const COLOS = {SEA:[47.45,-122.3,'Seattle'],PDX:[45.6,-122.6,'Portland'],SJC:[37.36,-121.93,'San Jose'],SFO:[37.6,-122.4,'San Francisco'],LAX:[33.94,-118.4,'Los Angeles'],SAN:[32.73,-117.2,'San Diego'],LAS:[36.08,-115.15,'Las Vegas'],PHX:[33.43,-112,'Phoenix'],SLC:[40.8,-111.98,'Salt Lake City'],DEN:[39.86,-104.67,'Denver'],ABQ:[35.04,-106.6,'Albuquerque'],DFW:[32.9,-97,'Dallas'],IAH:[29.98,-95.34,'Houston'],SAT:[29.5,-98.5,'San Antonio'],MCI:[39.3,-94.7,'Kansas City'],OMA:[41.3,-95.9,'Omaha'],MSP:[44.9,-93.2,'Minneapolis'],ORD:[41.98,-87.9,'Chicago'],DTW:[42.2,-83.35,'Detroit'],CMH:[40,-82.9,'Columbus'],IND:[39.7,-86.3,'Indianapolis'],STL:[38.75,-90.37,'St. Louis'],MEM:[35.04,-89.98,'Memphis'],BNA:[36.12,-86.68,'Nashville'],MSY:[29.99,-90.26,'New Orleans'],ATL:[33.64,-84.43,'Atlanta'],CLT:[35.2,-80.9,'Charlotte'],RDU:[35.88,-78.79,'Raleigh'],MIA:[25.8,-80.3,'Miami'],TPA:[27.98,-82.5,'Tampa'],JAX:[30.5,-81.7,'Jacksonville'],IAD:[38.95,-77.45,'Ashburn'],PHL:[39.87,-75.24,'Philadelphia'],EWR:[40.7,-74.17,'Newark'],JFK:[40.64,-73.78,'New York'],BOS:[42.36,-71,'Boston'],PIT:[40.5,-80.2,'Pittsburgh'],BUF:[42.94,-78.73,'Buffalo']};
+const REGION = {wnam:[40,-118,'W. North America'],enam:[38,-83,'E. North America']};
+
+const $ = id => document.getElementById(id);
+const esc = v => String(v==null?'':v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => Math.round(n).toLocaleString();
+const clock = d => d.toTimeString().slice(0,8);
+const col = st => st==='down' ? '#ff5468' : st==='warn' ? '#f5b73b' : st==='ok' ? '#2dd4a7' : '#5d667c';
+const label = st => ({ok:'Healthy',warn:'Degraded',down:'Down',unk:'No data'})[st];
+
+const S = { wide:{rounds:[],interval:900000,error:null}, sites:[], probes:{}, interval:5000, keep:720, sel:0, range:900000, demo:false, log:[], lastStatus:{}, lastOk:0, hoverT:null, mouse:null };
+
+/* ---------- classification ---------- */
+const sampleStatus = (ms, code) => code===0 ? 'down' : (code>=500 || ms>SLOW) ? 'warn' : 'ok';   // lost ping = down
+const probeList = () => Object.values(S.probes).sort((a,b)=>a.id.localeCompare(b.id));
+function latest(p, host) {
+  for (let i=p.hist.length-1;i>=0;i--) { const v = p.hist[i].r[host]; if (v) return {t:p.hist[i].t, ms:v[0], code:v[1], st:sampleStatus(v[0],v[1])}; }
+  return null;
+}
+function summary(host) {
+  const now = Date.now(), rows = [];
+  probeList().forEach(p => { const l = latest(p, host); if (l && now - l.t < S.interval*4) rows.push({p, ...l}); });
+  if (!rows.length) return {status:'unk', rows, text:'Waiting for data', ms:null};
+  const down = rows.filter(r=>r.st==='down').length, warn = rows.filter(r=>r.st==='warn').length;
+  const okMs = rows.filter(r=>r.st!=='down').map(r=>r.ms).sort((a,b)=>a-b);
+  const ms = okMs.length ? okMs[Math.floor(okMs.length/2)] : null;
+  let status='ok', text=`${rows.length}/${rows.length} locations up`;
+  if (down === rows.length) { status='down'; text = `No reply from all ${rows.length} locations`; }
+  else if (down) { status='warn'; text = `Ping lost at ${down} of ${rows.length} locations`; }
+  else if (warn) { status='warn'; text = `Slow or erroring at ${warn} of ${rows.length}`; }
+  return {status, rows, text, ms};
+}
+
+/* ---------- wide-area (Globalping) ---------- */
+const WIDE_SLOW = 300;                   // ms: slower than this counts as slow for a city ping
+function wideStatus(e) { if (!e.ok) return 'unk'; if (e.loss>=100) return 'down'; if (e.loss>0 || e.avg>WIDE_SLOW) return 'warn'; return 'ok'; }
+function wideLatest(host) {
+  const rs = S.wide.rounds;
+  for (let i=rs.length-1;i>=0;i--) { const e = rs[i].sites[host]; if (e && e.length) return {t:rs[i].t, list:e}; }
+  return null;
+}
+function renderWide(host) {
+  const W = S.wide, wl = wideLatest(host), mins = Math.round(W.interval/60000);
+  $('wTitle').textContent = `${host} · wide-area ping by city`;
+  if (!wl) {
+    $('wbody').innerHTML = `<tr><td colspan="7" style="color:var(--mute)">No wide-area results yet. The first round runs shortly after deploy and takes about a minute.</td></tr>`;
+    $('wAge').textContent = '';
+  } else {
+    const age = Math.max(0, Math.round((Date.now()-wl.t)/60000));
+    $('wAge').textContent = `Last round ${age<1?'just now':age+' min ago'} · every ${mins} min`;
+    const ms = v => v==null ? '–' : fmt(v)+' ms';
+    $('wbody').innerHTML = [...wl.list].sort((a,b)=>String(a.city).localeCompare(String(b.city))).map(e => {
+      const st = wideStatus(e);
+      return `<tr><td>${esc(e.city)}${e.state?', '+esc(e.state):''}</td><td>${esc(e.net||'–')}</td><td><span class="badge b-${st}">${st==='ok'?'Reply':st==='down'?'Lost':st==='warn'?'Degraded':'No result'}</span></td><td>${ms(e.avg)}</td><td>${ms(e.min)}</td><td>${ms(e.max)}</td><td style="color:${e.loss>0?'var(--down)':'inherit'}">${e.loss==null?'–':e.loss+'%'}</td></tr>`;
+    }).join('');
+  }
+  $('wNote').textContent = (W.error ? 'Last error: '+W.error+'. ' : '') + 'City pings are real ICMP pings (3 packets) run through Globalping from volunteer-hosted probes. Globalping picks the probe in each city, so the network can change between rounds.';
+}
+
+/* ---------- list ---------- */
+function buildRows() {
+  $('rows').innerHTML = '';
+  S.sites.forEach((h,i) => {
+    const el = document.createElement('div'); el.className='row'; el.dataset.i=i;
+    el.innerHTML = `<span class="st"></span><div class="nm">${h}<small></small></div><svg class="spark" viewBox="0 0 80 28" preserveAspectRatio="none"><polyline fill="none" stroke-width="1.5"/></svg>`;
+    el.onclick = () => { S.sel=i; render(); };
+    $('rows').appendChild(el);
+  });
+}
+function sparkPoints(host) {
+  const buckets = new Map();
+  probeList().forEach(p => p.hist.forEach(s => { const v=s.r[host]; if (!v || v[1]===0) return; const b=Math.floor(s.t/S.interval); (buckets.get(b)||buckets.set(b,[]).get(b)).push(v[0]); }));
+  const keys=[...buckets.keys()].sort((a,b)=>a-b).slice(-60);
+  return keys.map(k => { const a=buckets.get(k).sort((x,y)=>x-y); return a[Math.floor(a.length/2)]; });
+}
+
+/* ---------- render ---------- */
+function render() {
+  if (!S.sites.length) return;
+  let healthy=0, meds=[];
+  S.sites.forEach((h,i) => {
+    const sm = summary(h), el = $('rows').children[i]; if (!el) return;
+    el.classList.toggle('sel', i===S.sel);
+    el.querySelector('.st').style.background = col(sm.status);
+    el.querySelector('small').textContent = (sm.ms!=null ? fmt(sm.ms)+' ms · ' : '') + sm.text;
+    const pts = sparkPoints(h), max = Math.max(500, ...pts), pl = el.querySelector('polyline');
+    pl.setAttribute('stroke', col(sm.status));
+    pl.setAttribute('points', pts.map((v,k)=>`${(k/Math.max(1,pts.length-1)*80).toFixed(1)},${(26-(v/max)*24).toFixed(1)}`).join(' '));
+    if (sm.status==='ok') healthy++;
+    if (sm.ms!=null) meds.push(sm.ms);
+    const prev = S.lastStatus[h];
+    if (prev && prev!==sm.status && sm.status!=='unk') logEvent(h, sm);
+    S.lastStatus[h] = sm.status;
+  });
+  const np = probeList().filter(p=>p.hist.length && Date.now()-p.hist[p.hist.length-1].t < S.interval*4).length;
+  $('sHealthy').textContent = `${healthy}/${S.sites.length}`;
+  $('sProbes').textContent = np;
+  meds.sort((a,b)=>a-b); $('sMed').textContent = meds.length ? fmt(meds[Math.floor(meds.length/2)])+' ms' : '–';
+  const host = S.sites[S.sel], sm = summary(host);
+  $('mapTitle').textContent = `${host} · ping from Cloudflare locations`;
+  $('gTitle').textContent = `${host} · round-trip time`;
+  const b = $('gBadge'); b.textContent = label(sm.status); b.className = 'badge b-'+sm.status;
+  $('tTitle').textContent = `${host} · by location`;
+  renderTable(host, sm); renderWide(host); drawGraph();
+}
+function pingStats(p, host) {
+  const from = Date.now()-S.range, pts = p.hist.filter(x => x.t>=from && x.r[host]).map(x => x.r[host]);
+  if (!pts.length) return null;
+  const rtts = pts.filter(v => v[1]!==0).map(v => v[0]);
+  const loss = (pts.length - rtts.length) / pts.length * 100;
+  if (!rtts.length) return {n:pts.length, loss, min:null, avg:null, max:null, jit:null};
+  let jit = 0; for (let i=1;i<rtts.length;i++) jit += Math.abs(rtts[i]-rtts[i-1]); jit = rtts.length>1 ? jit/(rtts.length-1) : 0;
+  return {n:pts.length, loss, min:Math.min(...rtts), avg:rtts.reduce((a,b)=>a+b,0)/rtts.length, max:Math.max(...rtts), jit};
+}
+const locName = p => { const c = COLOS[p.colo]; return p.colo ? `${p.colo}${c?' · '+c[2]:''}` : `${REGION[p.hint]?.[2]||p.hint} (locating…)`; };
+function renderTable(host, sm) {
+  const byId = Object.fromEntries(sm.rows.map(r=>[r.p.id,r])), ms = v => v==null ? '–' : fmt(v)+' ms';
+  $('tbody').innerHTML = probeList().map(p => {
+    const r = byId[p.id], q = pingStats(p, host), st = r ? r.st : 'unk';
+    return `<tr><td>${locName(p)}</td><td><span class="badge b-${st}">${st==='ok'?'Reply':st==='down'?'Lost':label(st)}</span></td><td>${r ? (st==='down'?'lost':fmt(r.ms)+' ms') : '–'}</td><td>${ms(q&&q.min)}</td><td>${ms(q&&q.avg)}</td><td>${ms(q&&q.max)}</td><td>${ms(q&&q.jit)}</td><td style="color:${q&&q.loss>0?'var(--down)':'inherit'}">${q ? q.loss.toFixed(q.loss%1?1:0)+'%' : '–'}</td></tr>`;
+  }).join('');
+}
+function logEvent(h, sm) {
+  const m = sm.status==='ok' ? `${h} is healthy again` : sm.status==='down' ? `${h}: no ping reply from any location` : `${h}: ${sm.text.toLowerCase()}`;
+  S.log.unshift({t:new Date(), m, st:sm.status}); S.log.length = Math.min(S.log.length, 50);
+  $('log').innerHTML = S.log.map(e=>`<div class="ev"><time>${clock(e.t)}</time><span class="st" style="background:${col(e.st)}"></span><span>${e.m}</span></div>`).join('');
+}
+
+/* ---------- canvas ---------- */
+function fit(cv) { const r=cv.getBoundingClientRect(), d=window.devicePixelRatio||1; if (cv.width!==Math.round(r.width*d)||cv.height!==Math.round(r.height*d)) { cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); } const ctx=cv.getContext('2d'); ctx.setTransform(d,0,0,d,0,0); return {ctx,w:r.width,h:r.height}; }
+
+/* ---------- map ---------- */
+const OUTLINE=[[-124.7,48.4],[-122.8,49],[-95.2,49],[-94.6,48.7],[-93,48.6],[-89.6,48],[-88.4,48.3],[-84.8,46.9],[-83,46],[-82.5,43],[-79,43.2],[-76,43.6],[-75,45],[-71.5,45],[-70.2,46.5],[-69.2,47.4],[-67.8,47.1],[-67,44.8],[-70,43.7],[-70.7,42.7],[-70,41.7],[-72,41.2],[-74,40.5],[-74,39.5],[-75.5,38.4],[-76,37],[-75.5,35.3],[-77,34.5],[-79,33.3],[-81,31.8],[-81.3,30],[-80,27],[-80.2,25.3],[-81.2,25.2],[-82.7,27.8],[-83,29.3],[-84.5,30],[-86,30.3],[-88,30.3],[-89.5,30.2],[-89.2,29.1],[-91,29.2],[-93.8,29.7],[-95.5,28.7],[-97.2,27.6],[-97.2,25.9],[-99.1,26.4],[-100.7,29.2],[-102.4,29.8],[-104.5,29.6],[-106.5,31.8],[-108.2,31.8],[-108.2,31.3],[-111,31.3],[-114.8,32.5],[-117.1,32.5],[-118.5,34],[-120.6,34.5],[-121.9,36.6],[-122.5,37.8],[-123.8,39.4],[-124.4,40.4],[-124.1,42],[-124.5,43],[-124,46.2]];
+const inside=(lon,lat)=>{let c=false;for(let i=0,j=OUTLINE.length-1;i<OUTLINE.length;j=i++){const[xi,yi]=OUTLINE[i],[xj,yj]=OUTLINE[j];if((yi>lat)!==(yj>lat)&&lon<(xj-xi)*(lat-yi)/(yj-yi)+xi)c=!c;}return c;};
+const LAND=[];for(let la=25;la<=49;la+=.5)for(let lo=-125;lo<=-67;lo+=.5)if(inside(lo,la))LAND.push([lo,la]);
+const mapCv=$('map');let landLayer=null,landKey='';let nodes=[];
+function proj(lon,lat,w,h){const p=18,k=Math.cos(37*Math.PI/180),s=Math.min((w-2*p)/(58.5*k),(h-2*p)/25.5),ox=(w-58.5*k*s)/2,oy=(h-25.5*s)/2;return[ox+(lon+125)*k*s,oy+(49.8-lat)*s,s];}
+function probePos(p, idx) {
+  const c = COLOS[p.colo]; let lat, lon;
+  if (c) { lat=c[0]; lon=c[1]; } else { const r=REGION[p.hint]||[39,-98]; lat=r[0]; lon=r[1]; }
+  // spread probes sharing a spot so each stays visible
+  const dup = probeList().filter(q => (q.colo||q.hint)===(p.colo||p.hint));
+  const k = dup.findIndex(q=>q.id===p.id); if (dup.length>1) { const a=k/dup.length*6.283; lat+=Math.sin(a)*0.9; lon+=Math.cos(a)*1.2; }
+  return [lon,lat];
+}
+function drawMap() {
+  const {ctx,w,h}=fit(mapCv), key=w+'x'+h;
+  if (key!==landKey) { landKey=key; landLayer=document.createElement('canvas'); const d=devicePixelRatio||1; landLayer.width=w*d; landLayer.height=h*d; const lc=landLayer.getContext('2d'); lc.scale(d,d); lc.fillStyle='#26304a'; const r=Math.max(1,proj(0,0,w,h)[2]*.16); LAND.forEach(([lo,la])=>{const[x,y]=proj(lo,la,w,h);lc.beginPath();lc.arc(x,y,r,0,6.2832);lc.fill();}); }
+  ctx.clearRect(0,0,w,h); ctx.drawImage(landLayer,0,0,w,h);
+  const t=performance.now()/1000, host=S.sites[S.sel]; nodes=[];
+  if (host) {
+    const sm = summary(host), byId = Object.fromEntries(sm.rows.map(r=>[r.p.id,r])), wl = wideLatest(host);
+    if (wl) wl.list.forEach(e => {
+      if (e.lat==null || e.lon==null) return;
+      const [x,y] = proj(e.lon,e.lat,w,h), st = wideStatus(e), c = col(st);
+      ctx.save(); ctx.translate(x,y); ctx.rotate(Math.PI/4); ctx.fillStyle=c+'33'; ctx.strokeStyle=c; ctx.lineWidth=2; ctx.fillRect(-5,-5,10,10); ctx.strokeRect(-5,-5,10,10); ctx.restore();
+      ctx.fillStyle='rgba(138,147,168,.95)'; ctx.font='10px -apple-system,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(`${e.city} ${!e.ok?'n/a':e.loss>=100?'LOST':fmt(e.avg)+' ms'}`, x+9, y+11);
+      nodes.push({x,y,rad:8,wide:e,st});
+    });
+    probeList().forEach((p,i) => {
+      const r = byId[p.id], st = r ? r.st : 'unk', [lon,lat] = probePos(p,i), [x,y] = proj(lon,lat,w,h);
+      const rad = r && st!=='down' ? 6 + Math.min(14, r.ms/200) : 9, c = col(st);
+      if (st==='down' || st==='warn') { const ph=(t*.8+i*.2)%1; ctx.strokeStyle=c+Math.round((1-ph)*140).toString(16).padStart(2,'0'); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,rad+ph*26,0,6.2832); ctx.stroke(); }
+      const g=ctx.createRadialGradient(x,y,0,x,y,rad*2.4); g.addColorStop(0,c+'66'); g.addColorStop(1,c+'00'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,rad*2.4,0,6.2832); ctx.fill();
+      ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,rad,0,6.2832); ctx.fill();
+      ctx.fillStyle='rgba(11,14,20,.85)'; ctx.font='bold 10px -apple-system,Segoe UI,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(p.colo||'?',x,y);
+      ctx.fillStyle='rgba(230,233,240,.9)'; ctx.font='11px -apple-system,Segoe UI,sans-serif'; ctx.textAlign='left';
+      ctx.fillText(r ? (st==='down' ? 'LOST' : fmt(r.ms)+' ms') : 'no data', x+rad+6, y);
+      nodes.push({x,y,rad,p,r,st});
+    });
+  }
+  requestAnimationFrame(drawMap);
+}
+const tip=$('tip');
+mapCv.addEventListener('mousemove',e=>{const rc=mapCv.getBoundingClientRect(),mx=e.clientX-rc.left,my=e.clientY-rc.top;const n=[...nodes].reverse().find(n=>(n.x-mx)**2+(n.y-my)**2<(n.rad+8)**2);if(!n){tip.style.display='none';return;}
+  if(n.wide){const e=n.wide;tip.innerHTML=`<b>${esc(e.city)}${e.state?', '+esc(e.state):''}</b><div><span>Wide-area ping</span><span>${label(n.st==='unk'?'unk':n.st)}</span></div>`+(e.ok?`<div><span>Avg</span><span>${e.loss>=100?'lost':fmt(e.avg)+' ms'}</span></div><div><span>Loss</span><span>${e.loss}%</span></div>`:'')+`<div><span>Network</span><span>${esc(e.net||'–')}</span></div>`;tip.style.display='block';tip.style.left=Math.min(mx+14,rc.width-190)+'px';tip.style.top=Math.max(4,my-10)+'px';return;}
+  tip.innerHTML=`<b>${locName(n.p)}</b><div><span>Status</span><span>${label(n.st==='unk'?'unk':n.st)}</span></div>`+(n.r?`<div><span>HTTP</span><span>${n.r.code||'no reply'}</span></div><div><span>Round trip</span><span>${n.r.code===0?'lost':fmt(n.r.ms)+' ms'}</span></div>`:'')+`<div><span>Probe</span><span>${n.p.id}</span></div>`;
+  tip.style.display='block';tip.style.left=Math.min(mx+14,rc.width-190)+'px';tip.style.top=Math.max(4,my-10)+'px';});
+mapCv.addEventListener('mouseleave',()=>tip.style.display='none');
+
+/* ---------- graph ---------- */
+const gCv=$('graph');
+function drawGraph() {
+  const host=S.sites[S.sel]; if (!host) return;
+  const {ctx,w,h}=fit(gCv), L=52,R=14,T=14,B=26, pw=w-L-R, ph=h-T-B, now=Date.now(), t0=now-S.range;
+  const ps=probeList(); let maxOk=0;
+  const series=ps.map((p,i)=>({p,c:COLORS[i%COLORS.length],pts:p.hist.filter(s=>s.t>=t0&&s.r[host]).map(s=>({t:s.t,ms:s.r[host][0],code:s.r[host][1]}))}));
+  series.forEach(s=>s.pts.forEach(q=>{ if (q.code!==0) maxOk=Math.max(maxOk,q.ms); }));
+  const ymax=Math.max(400,maxOk*1.2), X=t=>L+(t-t0)/S.range*pw, Y=v=>T+ph-Math.min(v,ymax)/ymax*ph;
+  ctx.clearRect(0,0,w,h); ctx.font='11px -apple-system,Segoe UI,sans-serif'; ctx.strokeStyle='#1e2638'; ctx.fillStyle='#8a93a8'; ctx.lineWidth=1;
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let i=0;i<=4;i++){const v=ymax*i/4,y=Y(v);ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(w-R,y);ctx.stroke();ctx.fillText(fmt(v)+' ms',L-8,y);}
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  const step = S.range<=300000?60000 : S.range<=900000?180000 : 600000;
+  for(let t=Math.ceil(t0/step)*step;t<=now;t+=step){const x=X(t);ctx.fillText(Math.round((now-t)/60000)+'m ago',x,h-B+8);}
+  ctx.fillText('now',w-R-10,h-B+8);
+  if (SLOW<ymax){ctx.setLineDash([5,4]);ctx.strokeStyle='#f5b73b88';ctx.beginPath();ctx.moveTo(L,Y(SLOW));ctx.lineTo(w-R,Y(SLOW));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#f5b73b';ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText('slow',L+6,Y(SLOW)-3);}
+  // failures as red bands
+  const bw=Math.max(3,S.interval/S.range*pw);
+  series.forEach(s=>s.pts.forEach(q=>{ if (sampleStatus(q.ms,q.code)==='down'){ctx.fillStyle='rgba(255,84,104,.16)';ctx.fillRect(X(q.t)-bw/2,T,bw,ph);ctx.fillStyle='#ff5468';ctx.fillRect(X(q.t)-bw/2,T+ph-4,bw,4);} }));
+  // lines (broken at failures)
+  series.forEach(s=>{ctx.strokeStyle=s.c;ctx.lineWidth=2;ctx.lineJoin='round';ctx.beginPath();let pen=false;s.pts.forEach(q=>{if(q.code===0){pen=false;return;}const x=X(q.t),y=Y(q.ms);pen?ctx.lineTo(x,y):ctx.moveTo(x,y);pen=true;});ctx.stroke();
+    const last=s.pts[s.pts.length-1]; if(last&&last.code!==0){ctx.fillStyle=s.c;ctx.beginPath();ctx.arc(X(last.t),Y(last.ms),3.5,0,6.2832);ctx.fill();} });
+  $('gLegend').innerHTML=series.map(s=>`<span><i class="ln" style="background:${s.c}"></i>${locName(s.p)}</span>`).join('')+`<span style="margin-left:auto"><i style="background:var(--down)"></i>Lost ping</span>`;
+  // hover
+  const gt=$('gtip');
+  if (S.hoverX!=null){ const t=t0+(S.hoverX-L)/pw*S.range; ctx.strokeStyle='#8a93a8';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(S.hoverX,T);ctx.lineTo(S.hoverX,T+ph);ctx.stroke();
+    const items=series.map(s=>{let b=null;s.pts.forEach(q=>{if(!b||Math.abs(q.t-t)<Math.abs(b.t-t))b=q;});return b&&Math.abs(b.t-t)<S.interval*1.5?{s,b}:null;}).filter(Boolean);
+    gt.innerHTML=`<b>${clock(new Date(t))}</b>`+(items.length?items.map(o=>`<div><span style="color:${o.s.c}">${o.s.p.colo||o.s.p.id}</span><span>${o.b.code===0?'lost':fmt(o.b.ms)+' ms'}</span></div>`).join(''):'<div><span>No data</span><span></span></div>');
+    gt.style.display='block';gt.style.left=Math.min(S.hoverX+14,w-190)+'px';gt.style.top='10px'; } else gt.style.display='none';
+}
+gCv.addEventListener('mousemove',e=>{S.hoverX=e.clientX-gCv.getBoundingClientRect().left;drawGraph();});
+gCv.addEventListener('mouseleave',()=>{S.hoverX=null;drawGraph();});
+$('range').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;S.range=+b.dataset.r;[...$('range').children].forEach(x=>x.classList.toggle('on',x===b));render();});
+addEventListener('resize',drawGraph);
+
+/* ---------- data: real backend, with demo fallback ---------- */
+function merge(data) {
+  S.sites = data.sites; S.interval = data.interval||S.interval; S.keep = data.keep||S.keep;
+  data.probes.forEach(np => {
+    const p = S.probes[np.id] || (S.probes[np.id] = {id:np.id,hint:np.hint,colo:null,hist:[]});
+    p.colo = np.colo || p.colo; p.hint = np.hint || p.hint;
+    const seen = new Set(p.hist.map(s=>s.t));
+    np.hist.forEach(s => { if (!seen.has(s.t)) p.hist.push(s); });
+    p.hist.sort((a,b)=>a.t-b.t); while (p.hist.length>S.keep) p.hist.shift();
+  });
+}
+let built=false, timers=[], demoTick=null;
+const newWide=()=>({rounds:[],interval:900000,error:null});
+const STORE={live:{sites:[],probes:{},wide:newWide()},demo:{sites:[],probes:{},wide:newWide()}};
+const getPref=()=>{try{return localStorage.getItem('sm-mode');}catch(e){return null;}};
+const savePref=m=>{try{localStorage.setItem('sm-mode',m);}catch(e){}};
+
+function merge(data) {
+  const st = STORE.live;
+  st.sites = data.sites; S.interval = data.interval||S.interval; S.keep = data.keep||S.keep;
+  data.probes.forEach(np => {
+    const p = st.probes[np.id] || (st.probes[np.id] = {id:np.id,hint:np.hint,colo:null,hist:[]});
+    p.colo = np.colo || p.colo; p.hint = np.hint || p.hint;
+    const seen = new Set(p.hist.map(s=>s.t));
+    np.hist.forEach(s => { if (!seen.has(s.t)) p.hist.push(s); });
+    p.hist.sort((a,b)=>a.t-b.t); while (p.hist.length>S.keep) p.hist.shift();
+  });
+  if (S.mode==='live') { S.sites = st.sites; S.probes = st.probes; }
+}
+async function poll() {
+  const mode = S.mode;
+  let since = Infinity; Object.values(STORE.live.probes).forEach(p => { since = Math.min(since, p.hist.length ? p.hist[p.hist.length-1].t : 0); });
+  if (!isFinite(since)) since = 0;
+  const res = await fetch('/api/state?since='+since, {cache:'no-store'});
+  if (!res.ok) throw new Error('HTTP '+res.status);
+  merge(await res.json());
+  if (S.mode !== mode) return;              // user switched modes while this request was in flight
+  if (!built) { buildRows(); built=true; }
+  $('liveTxt').textContent = 'Live · pinging every '+Math.round(S.interval/1000)+'s'; render();
+}
+
+let lastWideErr = 0;
+async function pollWide() {
+  const mode = S.mode, W = STORE.live.wide, last = W.rounds.length ? W.rounds[W.rounds.length-1].t : 0;
+  const res = await fetch('/api/wide?since='+last, {cache:'no-store'});
+  if (!res.ok) throw new Error('HTTP '+res.status);
+  const d = await res.json();
+  W.interval = d.interval || W.interval; W.error = d.error;
+  const seen = new Set(W.rounds.map(r=>r.t)); d.rounds.forEach(r => { if (!seen.has(r.t)) W.rounds.push(r); });
+  W.rounds.sort((a,b)=>a.t-b.t); W.rounds = W.rounds.slice(-24);
+  if (S.mode === mode) render();
+}
+
+/* demo data: simulated pings, including occasional regional failures */
+function initDemo() {
+  const defs=[['wnam-1','wnam','SEA'],['wnam-2','wnam','LAX'],['enam-1','enam','DFW'],['enam-2','enam','IAD']];
+  const sites=['pagedesk.com','pagedesk.info','melrosepark.org','union81.com','beaverrubspicecompany.com'];
+  const st=STORE.demo, fail={};
+  st.sites=sites;
+  const sample = t => defs.forEach(([id,hint,colo]) => {
+    const p = st.probes[id] || (st.probes[id]={id,hint,colo,hist:[]}); const r={};
+    sites.forEach((h,i)=>{ const f=fail[h]&&fail[h].ids.has(id); r[h]=(f||Math.random()<.004)?[3000,0]:[Math.round(28+i*14+Math.random()*16+(colo==='SEA'?0:colo==='LAX'?9:colo==='DFW'?22:38)+(Math.random()<.015?260:0)),200]; });
+    p.hist.push({t,r}); while(p.hist.length>720)p.hist.shift();
+  });
+  const now=Date.now();
+  for(let i=719;i>=0;i--){ if(i===300)fail[sites[2]]={ids:new Set(['enam-1','enam-2']),left:9}; if(i===291)fail[sites[2]]=null; if(i===420)fail[sites[3]]={ids:new Set(['wnam-1']),left:4}; if(i===416)fail[sites[3]]=null; sample(now-i*5000); }
+  // simulated wide-area (Globalping-style) rounds: 24 rounds, 15 minutes apart
+  const WC=[['New York',40.71,-74.0,'NY'],['Chicago',41.88,-87.63,'IL'],['Dallas',32.78,-96.8,'TX'],['Los Angeles',34.05,-118.24,'CA'],['Seattle',47.61,-122.33,'WA'],['Atlanta',33.75,-84.39,'GA'],['Denver',39.74,-104.99,'CO'],['Miami',25.76,-80.19,'FL']];
+  const nets=['Comcast','AWS','Hetzner','DigitalOcean','Verizon','Google Cloud'];
+  const wround=(t,latest)=>({t,sites:Object.fromEntries(sites.map((h,si)=>[h,WC.map(([city,la,lo,stt],ci)=>{
+    const avg=22+si*3+ci*6+Math.random()*14, base={city,state:stt,lat:la,lon:lo,net:nets[(ci+si)%6],ok:true};
+    if (latest && si===3 && city==='Seattle') return {...base,avg:null,min:null,max:null,loss:100};
+    return {...base,avg:Math.round(avg),min:Math.round(avg*.9),max:Math.round(avg*1.25),loss:(latest&&si===2&&city==='Miami')?33:0};
+  })]))});
+  for (let i=23;i>=0;i--) st.wide.rounds.push(wround(now-i*900000-(i===0?120000:0), i===0));
+  demoTick = () => {
+    Object.keys(fail).forEach(h=>{if(fail[h]&&--fail[h].left<=0)fail[h]=null;});
+    if(Math.random()<.06){const h=sites[Math.floor(Math.random()*sites.length)],ids=defs.map(d=>d[0]).filter(()=>Math.random()<.6);if(ids.length)fail[h]={ids:new Set(ids),left:5+Math.floor(Math.random()*6)};}
+    sample(Date.now());
+  };
+}
+
+function setMode(m, auto) {
+  timers.forEach(clearInterval); timers=[];
+  S.mode = m; S.demo = m==='demo'; S.sel = 0; S.lastStatus = {}; S.log = []; S.hoverX = null; built = false;
+  $('log').innerHTML = '<div class="empty">No status changes yet.</div>';
+  [...$('mode').children].forEach(b => b.classList.toggle('on', b.dataset.m===m));
+  $('demoTag').style.display = m==='demo' ? 'inline-block' : 'none';
+  if (!auto) savePref(m);
+  if (m==='demo') {
+    if (!STORE.demo.sites.length) initDemo();
+    S.interval = 5000; S.sites = STORE.demo.sites; S.probes = STORE.demo.probes; S.wide = STORE.demo.wide;
+    buildRows(); built = true; $('liveTxt').textContent = 'Demo · simulated pings'; render();
+    timers.push(setInterval(()=>{ demoTick(); render(); }, 2000));
+  } else {
+    S.sites = STORE.live.sites; S.probes = STORE.live.probes; S.wide = STORE.live.wide;
+    $('rows').innerHTML = ''; if (S.sites.length) { buildRows(); built = true; render(); }
+    $('liveTxt').textContent = 'Connecting…';
+    const run = () => poll().catch(() => {
+      if (S.mode!=='live') return;
+      $('liveTxt').textContent = S.sites.length ? 'Reconnecting…' : 'Backend not reachable';
+      if (!S.sites.length) $('rows').innerHTML = '<div class="empty">No backend found at /api/state.<br>Deploy the Worker (see README), or switch to Demo.</div>';
+    });
+    run(); timers.push(setInterval(run, 5000));
+    const runWide = () => pollWide().catch(() => {}); runWide(); timers.push(setInterval(runWide, 30000));
+  }
+}
+$('mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b.dataset.m !== S.mode) setMode(b.dataset.m); });
+
+(async()=>{
+  drawMap();
+  setInterval(()=>{ if(S.sites.length) render(); }, 1000);
+  if (getPref()==='demo') return setMode('demo', true);
+  // first load: try the real backend, fall back to demo data if it isn't there
+  try { S.mode='live'; await poll(); setMode('live', true); }
+  catch(e) { setMode('demo', true); }
+})();
+})();
+</script>
+</body>
+</html>
